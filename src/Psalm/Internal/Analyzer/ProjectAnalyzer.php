@@ -340,7 +340,7 @@ class ProjectAnalyzer
         $diff_files = null;
         $deleted_files = null;
 
-        $this->full_run = !$is_diff;
+        $this->full_run = true;
 
         $reference_cache = $this->file_reference_provider->loadReferenceCache(true);
 
@@ -361,14 +361,30 @@ class ProjectAnalyzer
             echo 'Scanning files...' . "\n";
         }
 
-        if ($diff_files === null || $deleted_files === null || count($diff_files) > 200) {
-            foreach ($this->config->getProjectDirectories() as $dir_name) {
-                $this->checkDirWithConfig($dir_name, $this->config);
-            }
+        $all_files_to_scan = [];
 
-            foreach ($this->config->getProjectFiles() as $file_path) {
-                $this->codebase->addFilesToAnalyze([$file_path => $file_path]);
+        foreach ($this->config->getProjectDirectories() as $dir_name) {
+            $file_extensions = $this->config->getFileExtensions();
+
+            $file_paths = $this->file_provider->getFilesInDir($dir_name, $file_extensions);
+
+            foreach ($file_paths as $file_path) {
+                if ($this->config->isInProjectDirs($file_path)) {
+                    $all_files_to_scan[$file_path] = $file_path;
+                }
             }
+        }
+
+        foreach ($this->config->getProjectFiles() as $file_path) {
+            $all_files_to_scan[$file_path] = $file_path;
+        }
+
+        if ($diff_files === null || $deleted_files === null || count($diff_files) > 200 || $this->codebase->find_unused_code) {
+            $this->codebase->scanner->addFilesToDeepScan($all_files_to_scan);
+        }
+
+        if ($diff_files === null || $deleted_files === null || count($diff_files) > 200) {
+            $this->codebase->analyzer->addFiles($all_files_to_scan);
 
             $this->config->initializePlugins($this);
 
@@ -381,6 +397,8 @@ class ProjectAnalyzer
 
             if ($diff_files) {
                 $file_list = $this->getReferencedFilesFromDiff($diff_files);
+
+                echo count($file_list) . PHP_EOL;
 
                 // strip out deleted files
                 $file_list = array_diff($file_list, $deleted_files);
